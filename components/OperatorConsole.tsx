@@ -4,8 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Catalog, Listing } from "@/lib/data";
 import type { AuditEntry, GuardrailReport } from "@/lib/audit";
 
+type Toast = {
+  id: string;
+  kind: "ok" | "err" | "info";
+  message: string;
+};
+
 type StructuredResearch = {
   title: string;
+  brief?: string;
   listings: {
     sku: string;
     why: string;
@@ -56,24 +63,65 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
   } | null>(null);
   const [researchQuery, setResearchQuery] = useState("");
   const [researching, setResearching] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [viewers, setViewers] = useState(0);
+  const [reactions, setReactions] = useState<{ id: string; emoji: string; left: number }[]>([]);
+  const [gmv, setGmv] = useState(0);
   const scriptIdx = useRef(0);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // Audit poll
+  // Viewer presence simulation: ramps up when stream starts, drifts.
   useEffect(() => {
-    const i = setInterval(async () => {
-      const r = await fetch("/api/audit").then((r) => r.json());
-      setAudit(r.entries);
-    }, 1500);
+    if (!running) {
+      // gentle decay when stopped
+      const i = setInterval(() => setViewers((v) => Math.max(0, v - Math.ceil(v * 0.1))), 600);
+      return () => clearInterval(i);
+    }
+    const i = setInterval(() => {
+      setViewers((v) => {
+        const target = 240 + Math.floor(Math.sin(Date.now() / 5000) * 60);
+        const delta = Math.sign(target - v) * Math.max(1, Math.floor(Math.abs(target - v) * 0.15));
+        return Math.max(0, v + delta + (Math.random() > 0.7 ? Math.floor(Math.random() * 5) - 2 : 0));
+      });
+    }, 400);
     return () => clearInterval(i);
-  }, []);
+  }, [running]);
 
-  // State poll
+  function fireReaction(emoji: string) {
+    const id = crypto.randomUUID();
+    const left = 10 + Math.random() * 70;
+    setReactions((cur) => [...cur, { id, emoji, left }]);
+    setTimeout(() => setReactions((cur) => cur.filter((r) => r.id !== id)), 2400);
+  }
+
+  function pushToast(t: Omit<Toast, "id">) {
+    const id = crypto.randomUUID();
+    setToasts((cur) => [...cur, { ...t, id }]);
+    setTimeout(() => setToasts((cur) => cur.filter((x) => x.id !== id)), 4000);
+  }
+
+  async function refetchState() {
+    const r = await fetch("/api/state").then((r) => r.json());
+    setCatalog(r);
+  }
+
+  async function refetchAudit() {
+    const r = await fetch("/api/audit").then((r) => r.json());
+    setAudit(r.entries);
+  }
+
+  // Audit poll (tight: 800ms while running, 2s idle)
   useEffect(() => {
-    const i = setInterval(async () => {
-      const r = await fetch("/api/state").then((r) => r.json());
-      setCatalog(r);
-    }, 2000);
+    const interval = running ? 800 : 2000;
+    const i = setInterval(refetchAudit, interval);
+    refetchAudit();
+    return () => clearInterval(i);
+  }, [running]);
+
+  // State poll (tight: 1s)
+  useEffect(() => {
+    const i = setInterval(refetchState, 1000);
     return () => clearInterval(i);
   }, []);
 
@@ -134,13 +182,14 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
     }
   }
 
-  async function sendReply(msgId: string, s: Suggestion, auto: boolean) {
+  async function sendReply(msgId: string, s: Suggestion, auto: boolean, editedReply?: string) {
     const m = messages.find((x) => x.id === msgId)!;
+    const reply = editedReply ?? s.reply;
     const r = await fetch("/api/send", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        reply: s.reply,
+        reply,
         forSku: s.forSku ?? undefined,
         offerPriceUsd: s.offerPriceUsd ?? undefined,
         viewer: { user: m.user, text: m.text },
@@ -148,9 +197,25 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
       }),
     });
     const ok = r.ok;
+    if (editedReply) {
+      pushToast({ kind: ok ? "ok" : "err", message: ok ? "Edited reply sent" : "Edit blocked by guardrails" });
+    }
     setMessages((cur) =>
-      cur.map((x) => (x.id === msgId ? { ...x, status: ok ? "answered" : "blocked" } : x)),
+      cur.map((x) =>
+        x.id === msgId
+          ? { ...x, status: ok ? "answered" : "blocked", suggestion: editedReply ? { ...s, reply: editedReply } : x.suggestion }
+          : x,
+      ),
     );
+    if (ok) {
+      // Simulated revenue + viewer reactions on each successful reply
+      const lift = s.intent === "negotiation" ? 220 : s.intent === "price_question" || s.intent === "availability" ? 80 : 25;
+      setGmv((g) => g + lift);
+      ["❤️", "🔥", "👀", "💯", "🛒"].slice(0, 1 + Math.floor(Math.random() * 3)).forEach((e, i) =>
+        setTimeout(() => fireReaction(e), i * 120),
+      );
+    }
+    refetchAudit();
   }
 
   async function ignoreMsg(msgId: string) {
@@ -160,11 +225,37 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
   }
 
   async function doAction(action: any) {
-    await fetch("/api/action", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, actor: "operator" }),
-    });
+    const key = `${action.type}:${action.sku}`;
+    setBusyAction(key);
+    // simulated GMV bump for successful agentic writes
+    const liftByType: Record<string, number> = { push_listing: 40, swap_featured: 60, markdown: 30, stock_adjust: 0 };
+    try {
+      const res = await fetch("/api/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, actor: "operator" }),
+      });
+      const body = await res.json();
+      if (res.ok) {
+        pushToast({ kind: "ok", message: body.message ?? `${action.type} done` });
+        const lift = liftByType[action.type] ?? 0;
+        if (lift) setGmv((g) => g + lift);
+        if (action.type === "push_listing" || action.type === "swap_featured") {
+          ["🛒", "🔥"].forEach((e, i) => setTimeout(() => fireReaction(e), i * 100));
+        }
+      } else {
+        pushToast({
+          kind: "err",
+          message:
+            body.guardrails?.violations?.[0]?.message ?? body.message ?? "Action blocked",
+        });
+      }
+      await Promise.all([refetchState(), refetchAudit()]);
+    } catch (e: any) {
+      pushToast({ kind: "err", message: e?.message ?? "Network error" });
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function runResearch() {
@@ -178,9 +269,13 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
       }).then((r) => r.json());
       setResearch({
         query: researchQuery,
-        brief: r.brief,
+        brief: r.brief ?? r.structured?.brief ?? "",
         structured: r.structured,
         ms: r.latencyMs,
+      });
+      pushToast({
+        kind: "info",
+        message: `Research returned ${r.structured?.listings?.length ?? 0} listings in ${r.latencyMs}ms`,
       });
     } finally {
       setResearching(false);
@@ -191,13 +286,29 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
     const answered = messages.filter((m) => m.status === "answered").length;
     const blocked = messages.filter((m) => m.status === "blocked").length;
     const pending = messages.filter((m) => m.status === "pending").length;
+    const handled = messages.filter((m) => m.status !== "pending").length;
+    const total = messages.length;
+    const coverage = total ? Math.round((handled / total) * 100) : 0;
     const latencies = messages.map((m) => m.suggestion?.latencyMs).filter((x): x is number => !!x);
     const avgMs = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
-    return { answered, blocked, pending, avgMs };
+    const autoSent = messages.filter((m) => m.status === "answered" && m.suggestion?.autoReplySafe).length;
+    const autoRate = answered ? Math.round((autoSent / answered) * 100) : 0;
+    return { answered, blocked, pending, avgMs, coverage, autoRate, total, handled };
   }, [messages]);
 
   return (
-    <div className="grid grid-cols-12 gap-3 p-3 h-screen text-sm">
+    <>
+    <Toaster toasts={toasts} />
+    <ReactionLayer reactions={reactions} />
+    <div className="flex flex-col h-screen text-sm">
+    <HudBar
+      running={running}
+      viewers={viewers}
+      gmv={gmv}
+      stats={stats}
+      showTitle={SCRIPT.show.title}
+    />
+    <div className="grid grid-cols-12 gap-3 p-3 flex-1 min-h-0">
       {/* Left: chat */}
       <section className="col-span-4 flex flex-col bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
         <header className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
@@ -220,7 +331,7 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
             <MessageCard
               key={m.id}
               msg={m}
-              onSend={(s) => sendReply(m.id, s, false)}
+              onSend={(s, edited) => sendReply(m.id, s, false, edited)}
               onIgnore={() => ignoreMsg(m.id)}
             />
           ))}
@@ -246,7 +357,12 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
           <header className="px-3 py-2 border-b border-zinc-800 font-semibold">Inventory & actions</header>
           <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
             {catalog.listings.map((l) => (
-              <ListingRow key={l.sku} listing={l} onAction={doAction} />
+              <ListingRow
+                key={l.sku}
+                listing={l}
+                onAction={doAction}
+                busyAction={busyAction}
+              />
             ))}
           </div>
         </div>
@@ -280,6 +396,7 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
                   result={research.structured}
                   catalog={catalog}
                   onAction={doAction}
+                  busyAction={busyAction}
                 />
               )}
               <details className="text-xs text-zinc-400">
@@ -306,6 +423,99 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
         </div>
       </section>
     </div>
+    </div>
+    </>
+  );
+}
+
+function HudBar({
+  running,
+  viewers,
+  gmv,
+  stats,
+  showTitle,
+}: {
+  running: boolean;
+  viewers: number;
+  gmv: number;
+  stats: { coverage: number; avgMs: number; blocked: number; autoRate: number; handled: number; total: number };
+  showTitle: string;
+}) {
+  return (
+    <header className="flex items-center gap-4 px-4 py-2 bg-zinc-950 border-b border-zinc-800">
+      <div className="flex items-center gap-2">
+        <span
+          className={`inline-block w-2 h-2 rounded-full ${running ? "bg-red-500 pulse-ring" : "bg-zinc-600"}`}
+        />
+        <span className="text-xs uppercase tracking-wider text-zinc-400">
+          {running ? "Live" : "Off-air"}
+        </span>
+      </div>
+      <div className="text-zinc-200 text-xs font-medium truncate flex-1">{showTitle}</div>
+      <HudStat label="Viewers" value={viewers.toLocaleString()} accent="text-pink-300" />
+      <HudStat label="GMV" value={`$${gmv.toLocaleString()}`} accent="text-emerald-300" />
+      <HudStat label="Coverage" value={`${stats.coverage}%`} sub={`${stats.handled}/${stats.total}`} accent="text-blue-300" />
+      <HudStat label="Auto-reply" value={`${stats.autoRate}%`} accent="text-amber-300" />
+      <HudStat label="Avg latency" value={`${stats.avgMs}ms`} accent={stats.avgMs > 0 && stats.avgMs < 2000 ? "text-emerald-300" : "text-zinc-300"} />
+      <HudStat label="Blocked" value={`${stats.blocked}`} accent={stats.blocked > 0 ? "text-red-300" : "text-zinc-300"} />
+    </header>
+  );
+}
+
+function HudStat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="text-right leading-tight">
+      <div className={`text-sm font-semibold tabular-nums ${accent ?? "text-zinc-100"}`}>{value}</div>
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+        {label}
+        {sub && <span className="ml-1 text-zinc-600">({sub})</span>}
+      </div>
+    </div>
+  );
+}
+
+function ReactionLayer({
+  reactions,
+}: {
+  reactions: { id: string; emoji: string; left: number }[];
+}) {
+  return (
+    <div className="fixed inset-0 pointer-events-none z-40">
+      {reactions.map((r) => (
+        <div
+          key={r.id}
+          className="absolute text-2xl"
+          style={{
+            left: `${r.left}%`,
+            bottom: "30%",
+            animation: "floatUp 2.4s ease-out forwards",
+          }}
+        >
+          {r.emoji}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Toaster({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`pointer-events-auto px-3 py-2 rounded shadow-lg text-xs max-w-sm animate-[slideIn_0.2s_ease-out] ${
+            t.kind === "ok"
+              ? "bg-emerald-500/90 text-emerald-50"
+              : t.kind === "err"
+                ? "bg-red-500/90 text-red-50"
+                : "bg-zinc-700/90 text-zinc-50"
+          }`}
+        >
+          {t.message}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -315,10 +525,56 @@ function MessageCard({
   onIgnore,
 }: {
   msg: ChatMsg;
-  onSend: (s: Suggestion) => void;
+  onSend: (s: Suggestion, editedReply?: string) => void;
   onIgnore: () => void;
 }) {
   const s = msg.suggestion;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [revealed, setRevealed] = useState("");
+  const [recheckReport, setRecheckReport] = useState<GuardrailReport | null>(null);
+  const recheckTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Typewriter reveal on first appearance
+  useEffect(() => {
+    if (!s) return;
+    setDraft(s.reply);
+    if (editing) {
+      setRevealed(s.reply);
+      return;
+    }
+    setRevealed("");
+    let i = 0;
+    const tick = () => {
+      i = Math.min(i + Math.max(1, Math.floor(s.reply.length / 30)), s.reply.length);
+      setRevealed(s.reply.slice(0, i));
+      if (i < s.reply.length) {
+        timer = setTimeout(tick, 18);
+      }
+    };
+    let timer: NodeJS.Timeout = setTimeout(tick, 0);
+    return () => clearTimeout(timer);
+  }, [s?.reply]);
+
+  useEffect(() => {
+    if (!editing || !s) return;
+    if (recheckTimer.current) clearTimeout(recheckTimer.current);
+    recheckTimer.current = setTimeout(async () => {
+      const res = await fetch("/api/check", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reply: draft,
+          forSku: s.forSku ?? undefined,
+          offerPriceUsd: s.offerPriceUsd ?? undefined,
+        }),
+      }).then((r) => r.json());
+      setRecheckReport(res);
+    }, 300);
+    return () => {
+      if (recheckTimer.current) clearTimeout(recheckTimer.current);
+    };
+  }, [draft, editing, s]);
   const blocked = s && !s.guardrails.ok;
   const ringClass = blocked
     ? "border-red-500/40"
@@ -363,26 +619,82 @@ function MessageCard({
             )}
             <span className="ml-auto text-zinc-500">{s.latencyMs}ms</span>
           </div>
-          <div className="text-zinc-100 italic">"{s.reply}"</div>
+          {editing ? (
+            <div className="space-y-1">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                className="w-full text-zinc-100 bg-zinc-950 border border-zinc-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500/50"
+                autoFocus
+              />
+              <div className="text-[10px] text-zinc-500">
+                {draft.length} chars · live guardrail check
+              </div>
+            </div>
+          ) : (
+            <div
+              className="text-zinc-100 italic cursor-text hover:bg-zinc-900/50 rounded px-1 -mx-1"
+              onClick={() => msg.status === "pending" && setEditing(true)}
+              title={msg.status === "pending" ? "Click to edit" : ""}
+            >
+              "{revealed || s.reply}"
+              {revealed && revealed.length < s.reply.length && (
+                <span className="text-blue-400 animate-pulse">▍</span>
+              )}
+            </div>
+          )}
           <div className="text-[11px] text-zinc-500">{s.reasoning}</div>
 
-          <GuardrailBadges report={s.guardrails} />
+          <GuardrailBadges report={editing && recheckReport ? recheckReport : s.guardrails} />
 
           {msg.status === "pending" && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {!editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded text-xs"
+                >
+                  Edit
+                </button>
+              )}
+              {editing && (
+                <button
+                  onClick={() => {
+                    setDraft(s.reply);
+                    setEditing(false);
+                    setRecheckReport(null);
+                  }}
+                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded text-xs"
+                >
+                  Cancel
+                </button>
+              )}
               <button
-                disabled={blocked}
-                onClick={() => onSend(s)}
-                className="px-2 py-1 bg-emerald-500/20 text-emerald-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                disabled={editing ? !(recheckReport?.ok ?? false) : blocked}
+                onClick={() => {
+                  const reply = editing ? draft : s.reply;
+                  onSend(s, editing ? draft : undefined);
+                  setEditing(false);
+                }}
+                className="px-2 py-1 bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-200 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                {blocked ? "Blocked" : "Send"}
+                {editing
+                  ? recheckReport?.ok
+                    ? "Send edit"
+                    : "Edit blocked"
+                  : blocked
+                    ? "Blocked"
+                    : "Send"}
               </button>
-              <button
-                onClick={onIgnore}
-                className="px-2 py-1 bg-zinc-800 text-zinc-300 rounded text-xs"
-              >
-                Ignore
-              </button>
+              {!editing && (
+                <button
+                  onClick={onIgnore}
+                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                >
+                  Ignore
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -414,14 +726,18 @@ function GuardrailBadges({ report }: { report: GuardrailReport }) {
 function ListingRow({
   listing,
   onAction,
+  busyAction,
 }: {
   listing: Listing;
   onAction: (a: any) => void;
+  busyAction: string | null;
 }) {
   const [mdOpen, setMdOpen] = useState(false);
   const [mdPrice, setMdPrice] = useState(listing.price_usd);
+  const isBusy = (type: string) => busyAction === `${type}:${listing.sku}`;
+  const anyBusy = busyAction?.endsWith(`:${listing.sku}`) ?? false;
   return (
-    <div className={`p-2 rounded border ${listing.featured ? "border-amber-500/40 bg-amber-500/5" : "border-zinc-800 bg-zinc-950"}`}>
+    <div className={`p-2 rounded border transition-colors ${listing.featured ? "border-amber-500/40 bg-amber-500/5" : "border-zinc-800 bg-zinc-950"} ${anyBusy ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <div className="text-zinc-100">
@@ -435,32 +751,36 @@ function ListingRow({
         </div>
         <div className="flex gap-1">
           <button
+            disabled={anyBusy}
             onClick={() => onAction({ type: "push_listing", sku: listing.sku })}
-            className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded"
+            className="text-xs px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded disabled:opacity-40"
           >
-            Push
+            {isBusy("push_listing") ? "…" : "Push"}
           </button>
           <button
+            disabled={anyBusy}
             onClick={() => onAction({ type: "swap_featured", sku: listing.sku })}
-            className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded"
+            className="text-xs px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded disabled:opacity-40"
           >
-            Feature
+            {isBusy("swap_featured") ? "…" : "Feature"}
           </button>
           <button
             onClick={() => setMdOpen((o) => !o)}
-            className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded"
+            className="text-xs px-2 py-0.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded"
           >
             Markdown
           </button>
           <button
+            disabled={anyBusy}
             onClick={() => onAction({ type: "stock_adjust", sku: listing.sku, delta: 1 })}
-            className="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-300 rounded"
+            className="text-xs px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded disabled:opacity-40"
           >
             +1
           </button>
           <button
+            disabled={anyBusy}
             onClick={() => onAction({ type: "stock_adjust", sku: listing.sku, delta: -1 })}
-            className="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-300 rounded"
+            className="text-xs px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded disabled:opacity-40"
           >
             -1
           </button>
@@ -494,10 +814,12 @@ function ResearchResult({
   result,
   catalog,
   onAction,
+  busyAction,
 }: {
   result: StructuredResearch;
   catalog: Catalog;
   onAction: (a: any) => void;
+  busyAction: string | null;
 }) {
   return (
     <div className="space-y-2 bg-gradient-to-b from-blue-500/5 to-transparent border border-blue-500/20 rounded p-2">
@@ -521,6 +843,7 @@ function ResearchResult({
               recommendedAction={r.recommendedAction}
               markdownPriceUsd={r.markdownPriceUsd}
               onAction={onAction}
+              busyAction={busyAction}
             />
           );
         })}
@@ -535,13 +858,16 @@ function ResearchListingCard({
   recommendedAction,
   markdownPriceUsd,
   onAction,
+  busyAction,
 }: {
   listing: Listing;
   why: string;
   recommendedAction: "push_listing" | "swap_featured" | "markdown" | "none";
   markdownPriceUsd: number | null;
   onAction: (a: any) => void;
+  busyAction: string | null;
 }) {
+  const busy = busyAction?.endsWith(`:${listing.sku}`) ?? false;
   const actionLabel: Record<typeof recommendedAction, string> = {
     push_listing: "Push to viewers",
     swap_featured: "Make featured",
@@ -570,10 +896,11 @@ function ResearchListingCard({
         </div>
         {recommendedAction !== "none" && (
           <button
+            disabled={busy}
             onClick={handle}
-            className="text-[11px] px-2 py-1 bg-blue-500/30 hover:bg-blue-500/40 text-blue-100 rounded whitespace-nowrap"
+            className="text-[11px] px-2 py-1 bg-blue-500/30 hover:bg-blue-500/40 text-blue-100 rounded whitespace-nowrap disabled:opacity-50"
           >
-            {actionLabel[recommendedAction]}
+            {busy ? "…" : actionLabel[recommendedAction]}
           </button>
         )}
       </div>
