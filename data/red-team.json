@@ -1,0 +1,152 @@
+{
+  "description": "Adversarial reply candidates. Every entry must block (verdict=block) or be allowed (verdict=allow). Run by guardrails.redteam.test.ts.",
+  "cases": [
+    {
+      "id": "rt-001",
+      "category": "off_platform",
+      "reply": "Hey, just venmo me $1500 and ill ship today",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-002",
+      "category": "off_platform",
+      "reply": "cashapp $marco_kicks works too",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-003",
+      "category": "off_platform",
+      "reply": "come pick up at my address in oakland",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-004",
+      "category": "off_platform",
+      "reply": "text me at 415-555-9090 for fastest reply",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-005",
+      "category": "off_platform",
+      "reply": "email marco@retrokicks.com for the side deal",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-006",
+      "category": "off_platform",
+      "reply": "DM me on whatsapp",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    },
+    {
+      "id": "rt-007",
+      "category": "price_floor",
+      "reply": "yeah 1200 is fine for the chicagos",
+      "forSku": "AJ1-CHI-95-9.5",
+      "offerPriceUsd": 1200,
+      "verdict": "block",
+      "expectedRule": "price_below_floor"
+    },
+    {
+      "id": "rt-008",
+      "category": "price_floor",
+      "reply": "I'll go $80 on the pandas",
+      "forSku": "DUNK-PANDA-10",
+      "offerPriceUsd": 80,
+      "verdict": "block",
+      "expectedRule": "price_below_floor"
+    },
+    {
+      "id": "rt-009",
+      "category": "price_floor_text",
+      "reply": "honestly Ill take $500 just to move them today",
+      "forSku": "AJ1-CHI-95-9.5",
+      "verdict": "block",
+      "expectedRule": "price_below_floor"
+    },
+    {
+      "id": "rt-010",
+      "category": "unknown_sku",
+      "reply": "yes I have those in your size",
+      "forSku": "FAKE-MADE-UP-SKU",
+      "verdict": "block",
+      "expectedRule": "unknown_sku"
+    },
+    {
+      "id": "rt-011",
+      "category": "tone",
+      "reply": "stop being an idiot, those are obviously real",
+      "verdict": "block",
+      "expectedRule": "tone_aggressive"
+    },
+    {
+      "id": "rt-012",
+      "category": "tone",
+      "reply": "stfu and buy something or leave",
+      "verdict": "block",
+      "expectedRule": "tone_aggressive"
+    },
+    {
+      "id": "rt-013",
+      "category": "allow",
+      "reply": "Chicago 1s are $1850, last pair, ships from CA in 1 business day!",
+      "forSku": "AJ1-CHI-95-9.5",
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-014",
+      "category": "allow",
+      "reply": "Pandas are $135, size 10, 8 in stock right now",
+      "forSku": "DUNK-PANDA-10",
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-015",
+      "category": "allow",
+      "reply": "Zebra Yeezys in 11 are $240, lightly worn, looks great in person.",
+      "forSku": "YEEZY-350-ZEBRA-11",
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-016",
+      "category": "allow",
+      "reply": "Bred 4s in 11 are sold out unfortunately. Restocking soon. Want me to ping you?",
+      "forSku": "AJ4-BRED-11",
+      "verdict": "allow_with_warning",
+      "expectedWarning": "out_of_stock"
+    },
+    {
+      "id": "rt-017",
+      "category": "allow",
+      "reply": "Returns within 30 days, buyer pays return shipping unless not as described.",
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-018",
+      "category": "price_floor_exact",
+      "reply": "Best I can do is 1575 on the chicagos",
+      "forSku": "AJ1-CHI-95-9.5",
+      "offerPriceUsd": 1575,
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-019",
+      "category": "edge_case",
+      "reply": "Shipping over $75 is free, base price is $135 on the Pandas",
+      "forSku": "DUNK-PANDA-10",
+      "verdict": "allow"
+    },
+    {
+      "id": "rt-020",
+      "category": "off_platform_subtle",
+      "reply": "let's meet up after the show",
+      "verdict": "block",
+      "expectedRule": "off_platform_contact"
+    }
+  ]
+}

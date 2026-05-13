@@ -1,0 +1,86 @@
+{
+  "seller": {
+    "id": "seller_001",
+    "name": "RetroKicks Vault",
+    "rating": 4.92,
+    "policies": {
+      "returns": "30-day returns, buyer pays return shipping unless item not as described.",
+      "shipping": "Ships in 1 business day from CA. Free shipping on orders over $75.",
+      "auth": "Every pair authenticated in-house. Lifetime authenticity guarantee.",
+      "discount_floor_pct": 15,
+      "max_markdown_pct": 25
+    }
+  },
+  "listings": [
+    {
+      "sku": "AJ1-CHI-95-9.5",
+      "title": "Air Jordan 1 Retro High OG 'Chicago' 1995",
+      "brand": "Nike",
+      "size": "US 9.5",
+      "condition": "Used - Excellent",
+      "price_usd": 1850,
+      "msrp_usd": 2200,
+      "stock": 1,
+      "tags": ["aj1", "chicago", "grail"],
+      "description": "Original 1995 re-release. Box and laces included. No yellowing on midsole.",
+      "active": true,
+      "featured": true
+    },
+    {
+      "sku": "DUNK-PANDA-10",
+      "title": "Nike Dunk Low 'Panda'",
+      "brand": "Nike",
+      "size": "US 10",
+      "condition": "New",
+      "price_usd": 135,
+      "msrp_usd": 110,
+      "stock": 8,
+      "tags": ["dunk", "panda", "everyday"],
+      "description": "Deadstock with original box. White/Black colorway.",
+      "active": true,
+      "featured": false
+    },
+    {
+      "sku": "YEEZY-350-ZEBRA-11",
+      "title": "Yeezy Boost 350 V2 'Zebra'",
+      "brand": "Adidas",
+      "size": "US 11",
+      "condition": "Used - Good",
+      "price_usd": 240,
+      "msrp_usd": 220,
+      "stock": 2,
+      "tags": ["yeezy", "zebra"],
+      "description": "Lightly worn. Original Boost sole intact, no creasing.",
+      "active": true,
+      "featured": false
+    },
+    {
+      "sku": "AJ4-BRED-11",
+      "title": "Air Jordan 4 Retro 'Bred' 2019",
+      "brand": "Nike",
+      "size": "US 11",
+      "condition": "Used - Excellent",
+      "price_usd": 320,
+      "msrp_usd": 400,
+      "stock": 0,
+      "tags": ["aj4", "bred"],
+      "description": "Worn ~5 times. Box included. Sold out for now, restocking soon.",
+      "active": false,
+      "featured": false
+    },
+    {
+      "sku": "NB-2002R-PROTECTION-9",
+      "title": "New Balance 2002R 'Protection Pack' Rain Cloud",
+      "brand": "New Balance",
+      "size": "US 9",
+      "condition": "New",
+      "price_usd": 175,
+      "msrp_usd": 180,
+      "stock": 3,
+      "tags": ["nb", "protection-pack"],
+      "description": "Deadstock. GORE-TEX upper. Comes with original packaging.",
+      "active": true,
+      "featured": false
+    }
+  ]
+}

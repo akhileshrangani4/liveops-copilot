@@ -1,0 +1,21 @@
+{
+  "show": {
+    "id": "show_demo_01",
+    "title": "Friday Night Heat Drop - Grails & Everyday Bangers",
+    "host": "Marco"
+  },
+  "messages": [
+    { "delayMs": 1000, "user": "kicksfan_92", "text": "yo whats the price on the chicago 1s??" },
+    { "delayMs": 3500, "user": "soleSearch", "text": "size 10 panda dunks still available?" },
+    { "delayMs": 2000, "user": "drewbacca", "text": "can you do 1600 on the chicagos" },
+    { "delayMs": 4000, "user": "anon_buyer", "text": "lol scam, those aren't real" },
+    { "delayMs": 2500, "user": "heatmonger", "text": "what size yeezy zebras you got" },
+    { "delayMs": 3000, "user": "newcollector", "text": "first time buyer, how does shipping work?" },
+    { "delayMs": 3500, "user": "kicksfan_92", "text": "shipping to canada?" },
+    { "delayMs": 4000, "user": "drewbacca", "text": "ok 1700 final offer on chicagos" },
+    { "delayMs": 3000, "user": "bredhead", "text": "AJ4 bred 11 restock when??" },
+    { "delayMs": 2500, "user": "gorehead", "text": "do the 2002R gore-tex really work in rain" },
+    { "delayMs": 4500, "user": "anon_buyer", "text": "send me your address ill come pick up" },
+    { "delayMs": 3500, "user": "marcoFan", "text": "Marco show us the panda dunks again!" }
+  ]
+}
