@@ -3,6 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Catalog, Listing } from "@/lib/data";
 import type { AuditEntry, GuardrailReport } from "@/lib/audit";
+
+type StructuredResearch = {
+  title: string;
+  listings: {
+    sku: string;
+    why: string;
+    recommendedAction: "push_listing" | "swap_featured" | "markdown" | "none";
+    markdownPriceUsd: number | null;
+  }[];
+  summary: string;
+};
 import chatScript from "@/data/chat-script.json";
 
 type ChatMsg = {
@@ -37,9 +48,12 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
   const [running, setRunning] = useState(false);
   const [autoReply, setAutoReply] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
-  const [research, setResearch] = useState<{ query: string; brief: string; ms: number } | null>(
-    null,
-  );
+  const [research, setResearch] = useState<{
+    query: string;
+    brief: string;
+    structured?: StructuredResearch;
+    ms: number;
+  } | null>(null);
   const [researchQuery, setResearchQuery] = useState("");
   const [researching, setResearching] = useState(false);
   const scriptIdx = useRef(0);
@@ -162,7 +176,12 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ query: researchQuery }),
       }).then((r) => r.json());
-      setResearch({ query: researchQuery, brief: r.brief, ms: r.latencyMs });
+      setResearch({
+        query: researchQuery,
+        brief: r.brief,
+        structured: r.structured,
+        ms: r.latencyMs,
+      });
     } finally {
       setResearching(false);
     }
@@ -255,9 +274,21 @@ export default function OperatorConsole({ initialState }: { initialState: Catalo
             </button>
           </div>
           {research && (
-            <pre className="mt-2 text-xs whitespace-pre-wrap text-zinc-200 bg-zinc-950 border border-zinc-800 rounded p-2 max-h-48 overflow-y-auto scrollbar-thin">
-              {research.brief}
-            </pre>
+            <div className="mt-2 space-y-2">
+              {research.structured && (
+                <ResearchResult
+                  result={research.structured}
+                  catalog={catalog}
+                  onAction={doAction}
+                />
+              )}
+              <details className="text-xs text-zinc-400">
+                <summary className="cursor-pointer hover:text-zinc-200">Raw brief</summary>
+                <pre className="mt-1 whitespace-pre-wrap bg-zinc-950 border border-zinc-800 rounded p-2 max-h-40 overflow-y-auto scrollbar-thin">
+                  {research.brief}
+                </pre>
+              </details>
+            </div>
           )}
         </div>
       </section>
@@ -455,6 +486,97 @@ function ListingRow({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ResearchResult({
+  result,
+  catalog,
+  onAction,
+}: {
+  result: StructuredResearch;
+  catalog: Catalog;
+  onAction: (a: any) => void;
+}) {
+  return (
+    <div className="space-y-2 bg-gradient-to-b from-blue-500/5 to-transparent border border-blue-500/20 rounded p-2">
+      <div className="text-sm font-semibold text-blue-200">{result.title}</div>
+      <div className="text-xs text-zinc-300">{result.summary}</div>
+      <div className="space-y-1.5">
+        {result.listings.map((r) => {
+          const listing = catalog.listings.find((l) => l.sku === r.sku);
+          if (!listing) {
+            return (
+              <div key={r.sku} className="text-[11px] text-red-300 italic">
+                ⚠ Model referenced unknown SKU {r.sku} — filtered.
+              </div>
+            );
+          }
+          return (
+            <ResearchListingCard
+              key={r.sku}
+              listing={listing}
+              why={r.why}
+              recommendedAction={r.recommendedAction}
+              markdownPriceUsd={r.markdownPriceUsd}
+              onAction={onAction}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ResearchListingCard({
+  listing,
+  why,
+  recommendedAction,
+  markdownPriceUsd,
+  onAction,
+}: {
+  listing: Listing;
+  why: string;
+  recommendedAction: "push_listing" | "swap_featured" | "markdown" | "none";
+  markdownPriceUsd: number | null;
+  onAction: (a: any) => void;
+}) {
+  const actionLabel: Record<typeof recommendedAction, string> = {
+    push_listing: "Push to viewers",
+    swap_featured: "Make featured",
+    markdown: markdownPriceUsd ? `Mark down to $${markdownPriceUsd}` : "Markdown",
+    none: "",
+  };
+  const handle = () => {
+    if (recommendedAction === "none") return;
+    if (recommendedAction === "markdown" && markdownPriceUsd != null) {
+      onAction({ type: "markdown", sku: listing.sku, new_price_usd: markdownPriceUsd });
+    } else if (recommendedAction === "push_listing" || recommendedAction === "swap_featured") {
+      onAction({ type: recommendedAction, sku: listing.sku });
+    }
+  };
+
+  return (
+    <div className="bg-zinc-950 border border-zinc-800 rounded p-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <div className="text-xs text-zinc-100 font-medium">{listing.title}</div>
+          <div className="text-[10px] text-zinc-500 font-mono">
+            {listing.sku} · ${listing.price_usd} · stock {listing.stock}
+            {!listing.active && " · inactive"}
+          </div>
+          <div className="text-[11px] text-zinc-400 mt-1">{why}</div>
+        </div>
+        {recommendedAction !== "none" && (
+          <button
+            onClick={handle}
+            className="text-[11px] px-2 py-1 bg-blue-500/30 hover:bg-blue-500/40 text-blue-100 rounded whitespace-nowrap"
+          >
+            {actionLabel[recommendedAction]}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

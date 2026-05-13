@@ -25,7 +25,7 @@ it for one-click operator approval.
 |---|---|
 | Chat panel (left) | Scripted viewer messages stream in. Each message gets a drafted reply, guardrail badges, and Send/Ignore controls. |
 | Inventory & actions (center) | Live catalog with Push / Feature / Markdown / Stock adjust buttons. Every write is guardrail-checked. |
-| Research (center, bottom) | Free-form research queries. Runs an agent loop with `search_catalog`, `get_listing`, `list_featured` tools. |
+| Research (center, bottom) | Free-form research queries. Two-stage AI SDK pipeline: tool-calling agent loop (`search_catalog`, `get_listing`, `list_featured`) then `generateObject` structuring → renders as gen-UI listing comparison cards with one-click inline action buttons (Push / Feature / Markdown @ proposed price). |
 | Audit trail (right) | Every suggestion, send, block, and write — color-coded by kind/actor. |
 
 ## Architecture
@@ -33,7 +33,7 @@ it for one-click operator approval.
 - Next.js 15 App Router on Node runtime.
 - AI SDK 4 + Anthropic (`claude-sonnet-4-5` default; override with `LIVEOPS_MODEL`).
 - Reply suggestion: `generateObject` with a Zod schema for atomic, validated output.
-- Research: `generateText` with tool-calling loop (max 5 steps).
+- Research: two-stage — `generateText` with tool-calling loop (max 5 steps) gathers facts; `generateObject` with a Zod schema produces structured cards (title, listings[], summary). UI renders structured output as actionable gen-UI cards; markdown brief available as collapsible "Raw brief".
 - Guardrails: pure functions in `lib/guardrails.ts`, run on suggest, send, and action.
 - Audit log + mutable catalog state: in-memory singletons (replace with Postgres + Redis Streams in MVP).
 

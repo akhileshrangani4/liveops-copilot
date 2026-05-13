@@ -27,6 +27,27 @@ Prototype runs all of this in one Next.js process with in-memory state. MVP swap
 - Catalog state: Postgres + Redis cache (5s TTL on read paths, write-through on writes).
 - Audit log: append-only Postgres table partitioned by show, mirrored to S3 nightly.
 
+## Generative UI for research
+
+The research panel demonstrates AI SDK structured output as a UX primitive: a
+free-form operator query like "alternatives to AJ4 Bred for a size 11 buyer"
+returns not a markdown blob but a **rendered comparison card** with one-click
+action buttons inline on each candidate listing. Pipeline:
+
+1. **Gather** — `generateText` with `search_catalog` / `get_listing` /
+   `list_featured` tools, max 5 steps. Tool results are audit-logged.
+2. **Structure** — `generateObject` with a Zod schema (`{title, listings:
+   [{sku, why, recommendedAction, markdownPriceUsd}], summary}`) constrained to
+   SKUs that appear in both the brief and the seller's catalog.
+3. **Render** — client maps each structured listing to a `ResearchListingCard`.
+   `recommendedAction` becomes an inline button that dispatches the
+   corresponding guardrailed write through `/api/action`.
+
+Why this matters: the operator never re-types a SKU. AI's read of the catalog
+collapses into one click of operator authority, with guardrails firing exactly
+as they would on a manual action. This is the "operator copilot" wedge in
+miniature.
+
 ## Catalog grounding and retrieval
 
 For the prototype, catalogs are small (5 listings); we inject the full catalog

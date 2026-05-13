@@ -45,7 +45,7 @@ violation (`price_below_floor`) that surfaces an operator approval request.
 | Chat ingestion + reply draft | ✅ | — |
 | Guardrail stack (price/availability/policy/tone/off-platform) | ✅ | — |
 | Listing/inventory actions: push, feature, markdown, stock adjust | ✅ | Multi-warehouse inventory |
-| Product research via catalog tools | ✅ | External market-comp scraping |
+| Product research with **generative UI** (structured cards + inline action buttons) | ✅ | External market-comp scraping |
 | Audit trail UI + replay | ✅ | Long-term audit warehouse |
 | Voice-driven host narration | — | post-MVP |
 | Cross-seller policy library | — | post-MVP |
